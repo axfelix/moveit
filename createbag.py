@@ -15,6 +15,7 @@ from time import strftime
 import subprocess
 from paramiko import SSHClient
 from paramiko import AutoAddPolicy
+from paramiko import AuthenticationException
 from scp import SCPClient
 from distutils.dir_util import copy_tree
 import zipfile
@@ -26,16 +27,18 @@ from zipfile import ZipFile
 
 
 # change this to 1 if building for internal deposits, which use SFU credentials and go to a different server
-internalDepositor = 1
+internalDepositor = 0
 radar = 0
 nobag = 0
+ziponly = 1
 
 bagit_checksum_algorithms = ['md5']
 
 
 session_message = "Session Number"
+session_message_final = "Session Number.\n\nThe transfer package will be created and placed on your\n desktop after this; large packages may take a moment."
 
-transfer_message = "ransfer Number"
+transfer_message = "Transfer Number"
 
 if internalDepositor == 0:
 	username_message = "Username"
@@ -44,10 +47,14 @@ else:
 	username_message = "SFU Computing ID"
 	password_message = "SFU Computing password"
 
-close_session_message = "Is this the final session for this transfer?"
+close_session_message = "Is this the final session for this transfer?\nThe transfer will begin in the background after this \nand let you know when it is complete."
+close_session_osx_title = "Is this the final session for this transfer?"
+close_session_osx_informative = "The transfer will begin in the background and let you know when it is complete."
 
 if radar == 0:
 	sfu_success_message = "Files have been successfuly transferred to SFU Archives. \nAn archivist will be in contact with you if further attention is needed."
+
+	bag_success_message = "Files have been successfully packaged and placed in a new folder on your desktop for transfer to the Archives."
 
 else:
 	sfu_success_message = "Files have been successfuly transferred to SFU Library. \nA librarian will be in contact with you if further attention is needed."
@@ -56,7 +63,7 @@ else:
 sfu_failure_message = "Transfer did not complete successfully. \nPlease contact moveit@sfu.ca for help."
 
 if platform.system() != 'Darwin' and platform.system() != 'Windows':
-	# The Linux/Gtk config is currently unmaintained (broken)
+	# The Linux/Gtk config has been removed for now
 	from gi.repository import Gtk
 elif platform.system() == 'Windows':
 	from PyQt4 import QtGui, QtCore
@@ -81,19 +88,22 @@ elif platform.system() == 'Darwin':
 			if __name__ == "__main__":
 				popup = cocoaPopup("msgbox", "Success!", "--text", "Bag created at %s" % bag_dir, "--button1", "OK")
 
-	def cocoaTransferSuccess():
+	def cocoaTransferSuccess(success_type):
 			if __name__ == "__main__":
-				popup = cocoaPopup("msgbox", "SFU Transfer", "--informative-text", sfu_success_message, "--button1", "OK")
+				popup = cocoaPopup("msgbox", "SFU MoveIt", "--informative-text", success_type, "--button1", "OK")
 
-	def cocoaTransferError():
+	def cocoaTransferError(failure_message=sfu_failure_message):
 			if __name__ == "__main__":
-				popup = cocoaPopup("msgbox", "SFU Transfer", "--informative-text", sfu_failure_message, "--button1", "OK")
+				popup = cocoaPopup("msgbox", "SFU MoveIt", "--informative-text", failure_message, "--button1", "OK")
 				if popup == "1":
 					sys.exit()
 
 	def cocoaSessionNo():
 			if __name__ == "__main__":
-				popup = cocoaPopup("standard-inputbox", "Session Number", "--informative-text", session_message, "", "")
+				if ziponly == 0:
+					popup = cocoaPopup("standard-inputbox", "Session Number", "--informative-text", session_message, "", "")
+				else:
+					popup = cocoaPopup("standard-inputbox", "Session Number", "--informative-text", session_message_final, "", "")	
 				if popup[0] == "2":
 					sys.exit()
 				return popup[1]
@@ -121,7 +131,7 @@ elif platform.system() == 'Darwin':
 
 	def cocoaCloseSession():
 			if __name__ == "__main__":
-				popup = cocoaPopup("yesno-msgbox", "SFU Archives Transfer", "--informative-text", close_session_message, "", "")
+				popup = cocoaPopup("yesno-msgbox", "SFU MoveIt", "--text", close_session_osx_title, "--informative-text", close_session_osx_informative)
 				if popup[0] == "3":
 					sys.exit()
 				# "no" will equal 2 rather than 0 in cocoa, but "yes" still = 1
@@ -156,12 +166,9 @@ def make_bag(chosen_folder):
 		return chosen_folder
 
 
-def transfer_manifest(bag_dir, sessionno, transferno, archivesUsername, checksum, metafilename, passwordString):
+def transfer_manifest(bag_dir, sessionno, transferno, archivesUsername, checksum, metafilename, filelist):
 	current_time = strftime("%Y-%m-%d %H:%M:%S")
-	# plain language manifest
-	# transfer_metadata = "Your transfer, number " + sessionno + "-" + transferno + ", from user \'" + archivesUsername + "\', from the desktop folder " + clean_bag_dir + ", with md5 checksum " + checksum + ", was successfully received by SFU Archives at " + current_time + "."
-	# key/value manifest
-	transfer_metadata = "Transfer Number: " + transferno + "-" + sessionno + "\nUser: " + archivesUsername + "\nChecksum: " + checksum + "\nTime Received: " + current_time
+	transfer_metadata = "Transfer Number: " + transferno + "-" + sessionno + "\nUser: " + archivesUsername + "\nChecksum: " + checksum + "\nTime Received: " + current_time + "\n" + filelist
 
 	with open(metafilename, 'w') as transfer_metafile:
 		transfer_metafile.write(transfer_metadata)
@@ -176,8 +183,18 @@ def generate_password():
 	return passwordString
 
 
-# need to add error handling to the ssh connection
-def check_zip_and_send(bag_dir_parent, sessionno, transferno, archivesUsername, archivesPassword, close_session):
+def generate_file_md5(zipname, blocksize=2**20):
+    m = hashlib.md5()
+    with open(zipname, "rb") as f:
+        while True:
+            buf = f.read(blocksize)
+            if not buf:
+                break
+            m.update(buf)
+    return m.hexdigest()
+
+
+def check_zip_and_send(bag_dir_parent, sessionno, transferno, archivesUsername, archivesPassword, close_session, parent_path):
 
 	if nobag == 0:
 		bag_dir = os.path.join(str(bag_dir_parent), 'bag')
@@ -185,24 +202,19 @@ def check_zip_and_send(bag_dir_parent, sessionno, transferno, archivesUsername, 
 		metafilename = numbered_bag_dir + "-meta.txt"
 		zipname = shutil.make_archive(numbered_bag_dir, 'zip', bag_dir)
 
-		with open(zipname,'rb') as transferZip:
-			data = transferZip.read()
-			checksum = hashlib.md5(data).hexdigest()
+		checksum = generate_file_md5(zipname)
 
 		with open(os.path.join(bag_dir, 'manifest-md5.txt'), 'r') as manifestmd5:
 			bagit_manifest_txt = manifestmd5.read()
-			filelist = re.sub("\r?\n\S*?\s+", "\n", bagit_manifest_txt)
+			filelist = re.sub("\r?\n\S*?\s+data", ("\n" + parent_path), bagit_manifest_txt)
+			filelist = filelist.split(' ', 1)[1]
 
 		passwordString = generate_password()
 		# Passwording uploaded files is disabled for now.
-		#with ZipFile(zipname, 'a') as transferZip:	
+		#with ZipFile(zipname, 'a') as transferZip:
 		#	transferZip.setpassword(passwordString)
 
 		shutil.rmtree(bag_dir)
-
-		listfilename = numbered_bag_dir + "-list.txt"
-		with open(listfilename,'w') as transfer_listfile:
-			transfer_listfile.write(filelist)
 
 		# check transfer number blacklist and post back if OK
 		get_req = urllib2.Request("http://arbutus.archives.sfu.ca:8008/blacklist")
@@ -220,6 +232,19 @@ def check_zip_and_send(bag_dir_parent, sessionno, transferno, archivesUsername, 
 		postdata = urlencode(values)
 		post_req = urllib2.Request("http://arbutus.archives.sfu.ca:8008/blacklist", postdata)
 
+	else:
+		filelist = ""
+
+	transfer_manifest(bag_dir, sessionno, transferno, archivesUsername, checksum, metafilename, filelist)
+
+	if ziponly == 1:
+		desktopPath = os.path.expanduser("~/Desktop/")
+		outputPath = desktopPath + os.path.splitext(os.path.basename(zipname))[0]
+		os.mkdir(outputPath)
+		shutil.move(zipname, (outputPath + "/" + os.path.basename(zipname)))
+		shutil.move(metafilename, (outputPath + "/" + os.path.basename(metafilename)))
+		return "bagged"
+
 
 	try:
 		ssh = SSHClient()
@@ -227,11 +252,6 @@ def check_zip_and_send(bag_dir_parent, sessionno, transferno, archivesUsername, 
 		if internalDepositor == 0:
 			ssh.connect("142.58.136.69", username=archivesUsername, password=archivesPassword, look_for_keys=False)
 			scp = SCPClient(ssh.get_transport())
-			#remote_zip_path = '~/deposit_here/' + sessionno + "-" + transferno + '.zip'
-			#scp.put(zipname, remote_zip_path)
-			transfer_manifest(bag_dir, sessionno, transferno, archivesUsername, checksum, metafilename, passwordString)
-			#remote_meta_path = '~/deposit_here/' + sessionno + "-" + transferno + '-meta.txt'
-			#scp.put(metafilename, remote_meta_path)
 			remote_path = '~/deposit_here/' + transferno + "-" + sessionno
 			scp.put(bag_dir_parent, remote_path, recursive=True)
 			if close_session == 1:
@@ -250,16 +270,18 @@ def check_zip_and_send(bag_dir_parent, sessionno, transferno, archivesUsername, 
 		else:
 			ssh.connect("pine.archives.sfu.ca", username=archivesUsername, password=archivesPassword, look_for_keys=False)
 			scp = SCPClient(ssh.get_transport())
-			#remote_zip_path = '~/' + sessionno + "-" + transferno + '.zip'
-			#scp.put(zipname, remote_zip_path)
-			transfer_manifest(bag_dir, sessionno, transferno, archivesUsername, checksum, metafilename, passwordString)
-			#remote_meta_path = '~/' + sessionno + "-" + transferno + '-meta.txt'
-			#scp.put(metafilename, remote_meta_path)
 			remote_path = '~/' + transferno + "-" + sessionno
 			scp.put(bag_dir_parent, remote_path, recursive=True)
 			if close_session == 1:
 				urllib2.urlopen(post_req)
 
+	except AuthenticationException:
+		failure_message = "Transfer did not complete successfully. \nUsername or password incorrect."
+		if platform.system() == 'Darwin':
+			cocoaTransferError(failure_message)
+		elif platform.system() == 'Windows':
+			QtChooserWindow.qt_transfer_failure(ex, failure_message)
+			return
 
 	except:
 		if platform.system() == 'Darwin':
@@ -272,70 +294,6 @@ def check_zip_and_send(bag_dir_parent, sessionno, transferno, archivesUsername, 
 		os.remove(zipname)
 		os.remove(metafilename)
 	return remote_path
-
-
-# Linux/Gtk-specific code (will work on Windows but not easily)
-if platform.system() != 'Darwin' and platform.system() != 'Windows':
-	class FolderChooserWindow(Gtk.Window):
-
-		def __init__(self):
-			Gtk.Window.__init__(self, title = config.get('UILabels', 'main_window_title', 'SFU Transfer'))
-			self.set_border_width(10)
-			self.move(200, 200)
-
-			box = Gtk.Box(spacing=6)
-			self.add(box)
-			self.spinner = Gtk.Spinner()
-
-			choose_folder_button = Gtk.Button("Choose a folder to transfer")
-			choose_folder_button.connect("clicked", self.on_folder_clicked)
-			box.add(choose_folder_button)
-
-			quit_button = Gtk.Button("Quit")
-			quit_button.connect("clicked", Gtk.main_quit)
-			box.add(quit_button)
-
-		def GtkError(self):
-			not_allowed_message = "\n\nYou are not allowed to run the program on that directory."
-			error_dialog = Gtk.MessageDialog(self, 0, Gtk.MessageType.ERROR,
-				Gtk.ButtonsType.OK, "Sorry...")
-			error_dialog.format_secondary_text(not_allowed_message)
-			error_dialog.run()
-			error_dialog.destroy()
-			raise SystemExit
-
-		def on_folder_clicked(self, widget):
-			folder_picker_dialog = Gtk.FileChooserDialog(
-				config.get('UILabels', 'file_chooser_window_title', 'SFU Transfer - Choose a folder to transfer'),
-				self, Gtk.FileChooserAction.SELECT_FOLDER)
-			folder_picker_dialog.set_default_size(800, 400)
-			folder_picker_dialog.set_create_folders(False)
-			folder_picker_dialog.add_btuton("Create Bag", -5)
-			folder_picker_dialog.add_button("Cancel", -6)
-			for filechooser_shortcut in filechooser_shortcuts:
-				folder_picker_dialog.add_shortcut_folder(filechooser_shortcut)
-
-			response = folder_picker_dialog.run()
-
-			if response == -5:
-				bag_dir = make_bag(folder_picker_dialog.get_filename())
-				folder_picker_dialog.destroy()
-
-				if (bag_dir):
-					confirmation_dialog = Gtk.MessageDialog(self, 0, Gtk.MessageType.INFO,
-						Gtk.ButtonsType.OK, "Bag created")
-					confirmation_dialog.format_secondary_text(
-						"The Bag for folder %s has been created." % bag_dir)
-					confirmation_dialog.run()
-					confirmation_dialog.destroy()
-			if response == -6:
-				folder_picker_dialog.destroy()
-
-	win = FolderChooserWindow()
-	win.connect("delete-event", Gtk.main_quit)
-	win.show_all()
-	Gtk.main()
-
 
 # Windows/Qt-specific code (can also work on Linux but Gtk is nicer)
 elif platform.system() == 'Windows':
@@ -360,7 +318,7 @@ elif platform.system() == 'Windows':
 
 			self.resize(345, 80)
 			self.center()
-			self.setWindowTitle('SFU Transfer')
+			self.setWindowTitle('SFU MoveIt')
 
 			self.show()
 
@@ -371,40 +329,50 @@ elif platform.system() == 'Windows':
 			self.move(qr.topLeft())
 
 		def showDialog(self):
-			fname = QtGui.QFileDialog.getExistingDirectory(self, 'SFU Transfer - Choose a folder to transfer', '/home')
+			fname = QtGui.QFileDialog.getExistingDirectory(self, 'SFU MoveIt - Choose a folder to transfer', '/home')
 
+			parent_path = os.path.basename(os.path.normpath(str(fname)))
 			bag_dir = make_bag(str(fname))
 
 			if (bag_dir):
-				# uncomment the below line and comment the ones after it if not SFU
-				# self.qt_confirmation(bag_dir)
 				archivesUsername = self.qt_username(bag_dir)
-				archivesPassword = self.qt_password(bag_dir)
+				if ziponly == 0:
+					archivesPassword = self.qt_password(bag_dir)
+				else:
+					archivesPassword = ""
 				if radar == 0:
 					transferno = self.qt_transfer(bag_dir)
 					sessionno = self.qt_session(bag_dir)
-					close_session = self.qt_close_session()
+					if ziponly == 0:
+						close_session = self.qt_close_session()
+					else:
+						close_session = 0
 				else:
 					sessionno = 0
 					transferno = 0
 					close_session = 0
 
-				payload = check_zip_and_send(bag_dir, str(sessionno), str(transferno), str(archivesUsername), str(archivesPassword), close_session)
+				payload = check_zip_and_send(bag_dir, str(sessionno), str(transferno), str(archivesUsername), str(archivesPassword), close_session, parent_path)
 
 				if (payload):
-					self.qt_transfer_success()
+					if payload == "bagged":
+						self.qt_transfer_success(bag_success_message)
+					else:
+						self.qt_transfer_success(sfu_success_message)
 
 		def qt_username(self, bag_dir):
 			archivesUsername, ok = QtGui.QInputDialog.getText(self, "Username", username_message)
 			return archivesUsername
 
 		def qt_password(self, bag_dir):
-			# TODO: obscure text entry
 			archivesPassword, ok = QtGui.QInputDialog.getText(self, "Password", password_message, 2)
 			return archivesPassword
 
 		def qt_session(self, bag_dir):
-			sessionno, ok = QtGui.QInputDialog.getText(self, "Session Number", session_message)
+			if ziponly == 0:
+				sessionno, ok = QtGui.QInputDialog.getText(self, "Session Number", session_message)
+			else:
+				sessionno, ok = QtGui.QInputDialog.getText(self, "Session Number", session_message_final)				
 			return sessionno
 
 		def qt_transfer(self, bag_dir):
@@ -412,17 +380,17 @@ elif platform.system() == 'Windows':
 			return transferno
 
 		def qt_close_session(self):
-			close_session_window = QtGui.QMessageBox.question(self, 'SFU Transfer', close_session_message, QtGui.QMessageBox.Yes | QtGui.QMessageBox.No, QtGui.QMessageBox.No)
+			close_session_window = QtGui.QMessageBox.question(self, 'SFU MoveIt', close_session_message, QtGui.QMessageBox.Yes | QtGui.QMessageBox.No, QtGui.QMessageBox.No)
 			if close_session_window == QtGui.QMessageBox.Yes:
 				close_session = 1
 			else:
 				close_session = 0
 			return close_session
 
-		def qt_transfer_success(self):
+		def qt_transfer_success(self, success_type):
 			confirmation_window = QtChooserWindow(self)
 
-			confirmation_string = sfu_success_message
+			confirmation_string = success_type
 			confirmation_message = QtGui.QLabel(confirmation_string, confirmation_window)
 			confirmation_message.move(20, 30)
 
@@ -432,10 +400,10 @@ elif platform.system() == 'Windows':
 
 			confirmation_window.show()
 
-		def qt_transfer_failure(self):
+		def qt_transfer_failure(self, failure_message=sfu_failure_message):
 			confirmation_window = QtChooserWindow(self)
 
-			confirmation_string = sfu_failure_message
+			confirmation_string = failure_message
 			confirmation_message = QtGui.QLabel(confirmation_string, confirmation_window)
 			confirmation_message.move(20, 30)
 
@@ -461,7 +429,7 @@ elif platform.system() == 'Windows':
 		def qt_error(self):
 			error_window = QtChooserWindow(self)
 
-			error_message = QtGui.QLabel("Something went wrong! Please open an issue report at http://github.com/axfelix/createbag/issues", error_window)
+			error_message = QtGui.QLabel("Something went wrong! Please open an issue report at http://github.com/axfelix/moveit/issues", error_window)
 			error_message.move(20, 30)
 
 			error_window.resize(360, 80)
@@ -479,14 +447,22 @@ elif platform.system() == 'Windows':
 # OSX-specific code.
 elif platform.system() == 'Darwin':
 
-	bag_dir = make_bag(sys.argv[1])
 	# add progress bar code eventually
-	# comment everything below except the last line if not SFU
 	archivesUsername = cocoaUsername()
-	archivesPassword = cocoaPassword()
+	if ziponly == 0:
+		archivesPassword = cocoaPassword()
+	else:
+		archivesPassword = ""
 	transferno = cocoaTransferNo()
 	sessionno = cocoaSessionNo()
-	close_session = cocoaCloseSession()
-	if check_zip_and_send(bag_dir, sessionno, transferno, archivesUsername, archivesPassword, close_session):
-		cocoaTransferSuccess()
-	#	cocoaSuccess(bag_dir)
+	bag_dir = make_bag(sys.argv[1])
+	parent_path = os.path.basename(os.path.normpath(sys.argv[1]))
+	if ziponly == 0:
+		close_session = cocoaCloseSession()
+	else:
+		close_session = 0
+	script_output = check_zip_and_send(bag_dir, sessionno, transferno, archivesUsername, archivesPassword, close_session, parent_path)
+	if script_output == "bagged":
+		cocoaTransferSuccess(bag_success_message)
+	else:
+		cocoaTransferSuccess(sfu_success_message)
