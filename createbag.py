@@ -296,7 +296,7 @@ def check_zip_and_send(bag_dir_parent, sessionno, transferno, archivesUsername, 
 	return remote_path
 
 # Windows/Qt-specific code (can also work on Linux but Gtk is nicer)
-elif platform.system() == 'Windows':
+if platform.system() == 'Windows':
 
 	class QtChooserWindow(QtGui.QDialog):
 
