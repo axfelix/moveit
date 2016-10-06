@@ -6,6 +6,8 @@ You're welcome to use this in your own institution; all that's required is chang
 
 The tool is designed to work, with GUI functionality, on Windows, OSX, and Linux. The Windows version uses Qt, the OSX version uses CocoaDialog, and the Linux version uses Gtk3 (though it is currently unmaintained and missing a few hooks).
 
+`blacklist.py` and `deposit_monitor.py` can be run on the deposit server to provide some simple monitoring functionality.
+
 GUI executables are provided for Windows and OSX, built with pyinstaller and Platypus respectively. Pyinstaller syntax to build is `pyinstaller --onefile --noconsole --icon=sfu.ico createbag.py`. Platypus bundles are built with `osxinstall.sh` as the primary executable, with `CocoaDialog.app`, `CreateBag.workflow`, and the `createbag` binary output from pyinstaller as bundled files. The Windows executable runs standalone; the OSX version is installed as an automator hook, detailed below.
 
 
