@@ -6,7 +6,7 @@ You're welcome to use this in your own institution; all that's required is chang
 
 The tool is designed to work, with GUI functionality, on Windows, OSX, and Linux. The Windows version uses Qt, the OSX version uses CocoaDialog, and the Linux version uses Gtk3 (though it is currently unmaintained and missing a few hooks).
 
-GUI executables are provided for Windows and OSX, built with pyinstaller and Platypus respectively. The Windows executable runs standalone; the OSX version is installed as an automator hook, detailed below.
+GUI executables are provided for Windows and OSX, built with pyinstaller and Platypus respectively. Pyinstaller syntax to build is `pyinstaller --onefile --noconsole --icon=sfu.ico createbag.py`. Platypus bundles are built with `osxinstall.sh` as the primary executable, with `CocoaDialog.app`, `CreateBag.workflow`, and the `createbag` binary output from pyinstaller as bundled files. The Windows executable runs standalone; the OSX version is installed as an automator hook, detailed below.
 
 
 ## Usage
@@ -26,7 +26,7 @@ Choosing a directory and clicking on "Create Bag" will prompt a user for a small
 
 #### OSX
 
-Download and run either of the zipped OSX installers . You may be prompted to install XCode during the install process; this should be pretty much automatic on newer OSX versions, but can be tricky if you're on Lion or older (let me know). You can then create and transfer bag using this script by right-clicking on any folder in your Finder and selecting "Deposit to SFU Archives" from the context menu (this line may simply read "Create bag" in older versions):
+Download and run either of the zipped OSX installers. You can then create and transfer bag using this script by right-clicking on any folder in your Finder and selecting "Deposit to SFU Archives" from the context menu (this line may simply read "Create bag" in older versions):
 
 ![][3]
 

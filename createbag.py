@@ -5,7 +5,6 @@ GUI tool to create a Bag from a filesystem folder.
 import sys
 import os
 import shutil
-import getpass
 import bagit
 import platform
 import random
@@ -26,10 +25,18 @@ import urllib2
 from zipfile import ZipFile
 
 
-# change this to 1 if building for internal deposits, which use SFU credentials and go to a different server
+# These are toggled at build time. TODO: switch to argument parser.
+
+# toggle this if depositing to an Active Directory server
 internalDepositor = 0
+
+# toggle this if depositing to SFU Library
 radar = 0
+
+# toggle this if bypassing the Bagit step
 nobag = 0
+
+# toggle this if bypassing the transfer and only creating a Bag on desktop
 ziponly = 1
 
 bagit_checksum_algorithms = ['md5']
@@ -54,7 +61,7 @@ close_session_osx_informative = "The transfer will begin in the background and l
 if radar == 0:
 	sfu_success_message = "Files have been successfuly transferred to SFU Archives. \nAn archivist will be in contact with you if further attention is needed."
 
-	bag_success_message = "Files have been successfully packaged and placed in a new folder on your desktop for transfer to the Archives."
+	bag_success_message = "Files have been successfully packaged and placed in a new folder on your desktop for transfer."
 
 else:
 	sfu_success_message = "Files have been successfuly transferred to SFU Library. \nA librarian will be in contact with you if further attention is needed."
@@ -64,7 +71,7 @@ sfu_failure_message = "Transfer did not complete successfully. \nPlease contact 
 
 if platform.system() != 'Darwin' and platform.system() != 'Windows':
 	# The Linux/Gtk config has been removed for now
-	from gi.repository import Gtk
+	# from gi.repository import Gtk
 elif platform.system() == 'Windows':
 	from PyQt4 import QtGui, QtCore
 elif platform.system() == 'Darwin':
@@ -157,8 +164,6 @@ def make_bag(chosen_folder):
 				elif platform.system() == 'Windows':
 					QtChooserWindow.qt_error(ex)
 					return
-				else:
-					FolderChooserWindow.GtkError(win)
 
 		return bag_dir_parent
 
@@ -218,15 +223,18 @@ def check_zip_and_send(bag_dir_parent, sessionno, transferno, archivesUsername, 
 
 		# check transfer number blacklist and post back if OK
 		get_req = urllib2.Request("http://arbutus.archives.sfu.ca:8008/blacklist")
-		get_response = urllib2.urlopen(get_req)
-		blacklist = get_response.read()
-		blacklist_entries = blacklist.split()
-		if transferno in blacklist_entries:
-			if platform.system() == 'Darwin':
-				cocoaTransferError()
-			elif platform.system() == 'Windows':
-				QtChooserWindow.qt_transfer_failure(ex)
-				return
+		try:
+			get_response = urllib2.urlopen(get_req, timeout = 2)
+			blacklist = get_response.read()
+			blacklist_entries = blacklist.split()
+			if transferno in blacklist_entries:
+				if platform.system() == 'Darwin':
+					cocoaTransferError()
+				elif platform.system() == 'Windows':
+					QtChooserWindow.qt_transfer_failure(ex)
+					return
+		except:
+			pass
 
 		values = {'transfer' : transferno, 'session' : sessionno, 'username' : archivesUsername, 'checksum' : checksum}
 		postdata = urlencode(values)
@@ -255,7 +263,10 @@ def check_zip_and_send(bag_dir_parent, sessionno, transferno, archivesUsername, 
 			remote_path = '~/deposit_here/' + transferno + "-" + sessionno
 			scp.put(bag_dir_parent, remote_path, recursive=True)
 			if close_session == 1:
-				urllib2.urlopen(post_req)
+				try:
+					urllib2.urlopen(post_req, timeout = 2)
+				except:
+					pass
 
 		elif radar == 1:
 			ssh.connect("researchdata.sfu.ca", username=archivesUsername, password=archivesPassword, look_for_keys=False)
@@ -273,7 +284,10 @@ def check_zip_and_send(bag_dir_parent, sessionno, transferno, archivesUsername, 
 			remote_path = '~/' + transferno + "-" + sessionno
 			scp.put(bag_dir_parent, remote_path, recursive=True)
 			if close_session == 1:
-				urllib2.urlopen(post_req)
+				try:
+					urllib2.urlopen(post_req, timeout = 2)
+				except:
+					pass
 
 	except AuthenticationException:
 		failure_message = "Transfer did not complete successfully. \nUsername or password incorrect."
