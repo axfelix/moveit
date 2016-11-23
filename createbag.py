@@ -71,7 +71,7 @@ sfu_failure_message = "Transfer did not complete successfully. \nPlease contact 
 
 if platform.system() != 'Darwin' and platform.system() != 'Windows':
 	# The Linux/Gtk config has been removed for now
-	# from gi.repository import Gtk
+	from gi.repository import Gtk
 elif platform.system() == 'Windows':
 	from PyQt4 import QtGui, QtCore
 elif platform.system() == 'Darwin':
