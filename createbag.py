@@ -43,7 +43,8 @@ bagit_checksum_algorithms = ['md5']
 
 
 session_message = "Session Number"
-session_message_final = "Session Number.\n\nThe transfer package will be created and placed on your\n desktop after this; large packages may take a moment."
+session_message_final_win = "The transfer package will be created and placed on your\n desktop after this; large packages may take a moment.\n\nSession Number"
+session_message_final_mac = "The transfer package will be created and placed on your desktop after this; large packages may take a moment.\n\nSession Number"
 
 transfer_message = "Transfer Number"
 
@@ -110,7 +111,7 @@ elif platform.system() == 'Darwin':
 				if ziponly == 0:
 					popup = cocoaPopup("standard-inputbox", "Session Number", "--informative-text", session_message, "", "")
 				else:
-					popup = cocoaPopup("standard-inputbox", "Session Number", "--informative-text", session_message_final, "", "")	
+					popup = cocoaPopup("standard-inputbox", "Session Number", "--informative-text", session_message_final_mac, "", "")	
 				if popup[0] == "2":
 					sys.exit()
 				return popup[1]
@@ -386,7 +387,7 @@ if platform.system() == 'Windows':
 			if ziponly == 0:
 				sessionno, ok = QtGui.QInputDialog.getText(self, "Session Number", session_message)
 			else:
-				sessionno, ok = QtGui.QInputDialog.getText(self, "Session Number", session_message_final)				
+				sessionno, ok = QtGui.QInputDialog.getText(self, "Session Number", session_message_final_win)				
 			return sessionno
 
 		def qt_transfer(self, bag_dir):
