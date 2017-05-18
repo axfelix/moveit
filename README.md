@@ -1,4 +1,4 @@
-# SFU Archives Deposit -- "Create Bag" Tool
+# SFU Archives Deposit -- "MoveIt" Tool
 
 This is a simple utility, forked from http://github.com/mjordan/createbag, which facilitates deposit of files and folders to SFU Archives by creating a Library of Congress-standard "bagit" container on the local machine.
 
@@ -15,7 +15,7 @@ GUI executables are provided for Windows and OSX, built with pyinstaller and Pla
 
 #### Windows
 
-Download the utility from [http://www.sfu.ca/~garnett/archivesdeposit/SFU%20MoveIt.zip]. When the utility starts, a small window with two buttons appears. One of them is "Exit". Clicking on "Choose a folder to transfer" will open up a standard file/directory browser.
+Download the utility from [http://www.sfu.ca/~garnett/archivesdeposit/SFU%20MoveIt.exe]. When the utility starts, a small window with two buttons appears. One of them is "Exit". Clicking on "Choose a folder to transfer" will open up a standard file/directory browser.
 
 Choosing a directory and clicking on "Create Bag" will prompt a user for a small amount of metadata (username and deposit number), and then automatically create a bag and place it on your desktop. The user will be notified of success or failure with a popup window upon completion.
 
