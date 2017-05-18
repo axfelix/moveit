@@ -2,7 +2,9 @@
 
 This is a simple utility, forked from http://github.com/mjordan/createbag, which facilitates deposit of files and folders to SFU Archives by creating a Library of Congress-standard "bagit" container on the local machine.
 
-You're welcome to use this in your own institution; all that's required is changing the IP addresses of the upload destinations at various locations in createbag.py. If you want to hack on this, you need Python 2.7 and the official bagit module.
+An earlier version of this tool also provided transfer functionality which is not currently supported, but the tool can be built to perform transfers by editing createbag.py.
+
+You're welcome to use this in your own institution; all that's required is changing the hardcoded references to SFU and the IP addresses of the upload destinations at various locations in createbag.py. If you want to hack on this, you need Python 2.7 and the official bagit module.
 
 The tool is designed to work, with GUI functionality, on Windows, OSX, and Linux. The Windows version uses Qt, the OSX version uses CocoaDialog, and the Linux version uses Gtk3 (though it is currently unmaintained and missing a few hooks).
 
