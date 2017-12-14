@@ -20,10 +20,16 @@ from distutils.dir_util import copy_tree
 import zipfile
 import hashlib
 import tempfile
-from urllib import urlencode
-import urllib2
 from zipfile import ZipFile
+import platform
 
+pyversion = platform.python_version_tuple()[0]
+if pyversion == "2":
+	from urllib import urlencode
+	import urllib2
+else:
+	from urllib.parse import urlencode
+	import urllib.request as urllib2
 
 # These are toggled at build time. TODO: switch to argument parser.
 
@@ -41,6 +47,9 @@ ziponly = 1
 
 bagit_checksum_algorithms = ['md5']
 
+confirmation_message_win = "The transfer package will be created and placed on your\n desktop after this; large packages may take a moment.\n\nAre all the transfer details correct?\n\n"
+#confirmation_message_mac = "The transfer package will be created and placed on your desktop after this; large packages may take a moment.\n\nAre all the transfer details correct?\n\n"
+confirmation_message_mac = "The transfer package will be created and placed on your desktop after this; large packages may take a moment.\n\n"
 
 session_message = "Session Number"
 session_message_final_win = "The transfer package will be created and placed on your\n desktop after this; large packages may take a moment.\n\nSession Number"
@@ -108,10 +117,7 @@ elif platform.system() == 'Darwin':
 
 	def cocoaSessionNo():
 			if __name__ == "__main__":
-				if ziponly == 0:
-					popup = cocoaPopup("standard-inputbox", "Session Number", "--informative-text", session_message, "", "")
-				else:
-					popup = cocoaPopup("standard-inputbox", "Session Number", "--informative-text", session_message_final_mac, "", "")	
+				popup = cocoaPopup("standard-inputbox", "Session Number", "--informative-text", session_message, "", "")
 				if popup[0] == "2":
 					sys.exit()
 				return popup[1]
@@ -136,6 +142,17 @@ elif platform.system() == 'Darwin':
 				if popup[0] == "2":
 					sys.exit()
 				return popup[1]
+
+	# Dummied temporarily because of issues w/ CocoaDialog under High Sierra
+	def cocoaConfirmation(confirmation_mac):
+			if __name__ == "__main__":
+				#popup = cocoaPopup("yesno-msgbox", "SFU MoveIt", "--text", "Confirm Transfer", "--informative-text", confirmation_mac)
+				#if popup[0] == "3" or popup[0] == "2":
+				#	sys.exit()
+				popup = cocoaPopup("msgbox", "SFU MoveIt", "--informative-text", confirmation_mac, "--button1", "OK")
+				if popup == "1":
+					sys.exit()
+				return
 
 	def cocoaCloseSession():
 			if __name__ == "__main__":
@@ -351,13 +368,20 @@ if platform.system() == 'Windows':
 
 			if (bag_dir):
 				archivesUsername = self.qt_username(bag_dir)
+				if archivesUsername == "":
+					sys.exit()
 				if ziponly == 0:
 					archivesPassword = self.qt_password(bag_dir)
 				else:
 					archivesPassword = ""
 				if radar == 0:
 					transferno = self.qt_transfer(bag_dir)
+					if transferno == "":
+						sys.exit()
 					sessionno = self.qt_session(bag_dir)
+					if sessionno == "":
+						sys.exit()
+					confirmation = self.qt_review(bag_dir, archivesUsername, sessionno, transferno)
 					if ziponly == 0:
 						close_session = self.qt_close_session()
 					else:
@@ -384,15 +408,20 @@ if platform.system() == 'Windows':
 			return archivesPassword
 
 		def qt_session(self, bag_dir):
-			if ziponly == 0:
-				sessionno, ok = QtGui.QInputDialog.getText(self, "Session Number", session_message)
-			else:
-				sessionno, ok = QtGui.QInputDialog.getText(self, "Session Number", session_message_final_win)				
+			sessionno, ok = QtGui.QInputDialog.getText(self, "Session Number", session_message)			
 			return sessionno
 
 		def qt_transfer(self, bag_dir):
 			transferno, ok = QtGui.QInputDialog.getText(self, "Transfer Number", transfer_message)
 			return transferno
+
+		def qt_review(self, bag_dir, archivesUsername, transferno, sessionno):
+			confirmation_string = confirmation_message_win + "\nUsername: " + archivesUsername + "\nTransfer: " + transferno + "-" + sessionno
+			review_window = QtGui.QMessageBox.question(self, 'SFU MoveIt', confirmation_string, QtGui.QMessageBox.Yes | QtGui.QMessageBox.No, QtGui.QMessageBox.No)
+			if review_window == QtGui.QMessageBox.Yes:
+				return
+			else:
+				sys.exit()
 
 		def qt_close_session(self):
 			close_session_window = QtGui.QMessageBox.question(self, 'SFU MoveIt', close_session_message, QtGui.QMessageBox.Yes | QtGui.QMessageBox.No, QtGui.QMessageBox.No)
@@ -463,13 +492,16 @@ if platform.system() == 'Windows':
 elif platform.system() == 'Darwin':
 
 	# add progress bar code eventually
-	archivesUsername = cocoaUsername()
+	# Python 3 needs .decode() because Cocoa returns bytestrings
+	archivesUsername = cocoaUsername().decode()
 	if ziponly == 0:
-		archivesPassword = cocoaPassword()
+		archivesPassword = cocoaPassword().decode()
 	else:
 		archivesPassword = ""
-	transferno = cocoaTransferNo()
-	sessionno = cocoaSessionNo()
+	transferno = cocoaTransferNo().decode()
+	sessionno = cocoaSessionNo().decode()
+	confirmation_mac = confirmation_message_mac + "\nUsername: " + archivesUsername + "\nTransfer: " + transferno + "-" + sessionno
+	confirmation = cocoaConfirmation(confirmation_mac)
 	bag_dir = make_bag(sys.argv[1])
 	parent_path = os.path.basename(os.path.normpath(sys.argv[1]))
 	if ziponly == 0:
